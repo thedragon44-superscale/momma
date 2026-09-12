@@ -22,6 +22,11 @@ function App() {
     emergency_contact_name: '', emergency_contact_relationship: '', emergency_contact_phone: ''
   })
 
+  const getAuthHeaders = () => ({
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${token}`
+  })
+
   // Medication tab state
   const [medications, setMedications] = useState<any[]>([])
   const [isAddingMed, setIsAddingMed] = useState(false)
@@ -31,14 +36,9 @@ function App() {
 
   const fetchMedications = async () => {
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/medications')
-      if (res.ok) {
-        const data = await res.json()
-        setMedications(data)
-      }
-    } catch (err) {
-      console.error('Failed to fetch medications', err)
-    }
+      const res = await fetch(`${API_BASE}/api/medications`, { headers: getAuthHeaders() })
+      if (res.ok) setMedications(await res.json())
+    } catch (err) { console.error('Failed to fetch medications', err) }
   }
 
   // Appointments tab state
@@ -53,14 +53,9 @@ function App() {
 
   const fetchAppointments = async () => {
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/appointments')
-      if (res.ok) {
-        const data = await res.json()
-        setAppointments(data)
-      }
-    } catch (err) {
-      console.error('Failed to fetch appointments', err)
-    }
+      const res = await fetch(`${API_BASE}/api/appointments`, { headers: getAuthHeaders() })
+      if (res.ok) setAppointments(await res.json())
+    } catch (err) { console.error('Failed to fetch appointments', err) }
   }
 
   // Credentials tab state
@@ -73,14 +68,9 @@ function App() {
 
   const fetchCredentials = async () => {
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/credentials')
-      if (res.ok) {
-        const data = await res.json()
-        setCredentials(data)
-      }
-    } catch (err) {
-      console.error('Failed to fetch credentials', err)
-    }
+      const res = await fetch(`${API_BASE}/api/credentials`, { headers: getAuthHeaders() })
+      if (res.ok) setCredentials(await res.json())
+    } catch (err) { console.error('Failed to fetch credentials', err) }
   }
 
   // Document Vault & PDF Autofill tab state
@@ -95,14 +85,9 @@ function App() {
 
   const fetchDocuments = async () => {
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/documents')
-      if (res.ok) {
-        const data = await res.json()
-        setDocuments(data)
-      }
-    } catch (err) {
-      console.error('Failed to fetch documents', err)
-    }
+      const res = await fetch(`${API_BASE}/api/documents`, { headers: getAuthHeaders() })
+      if (res.ok) setDocuments(await res.json())
+    } catch (err) { console.error('Failed to fetch documents', err) }
   }
 
   // Call & Insurance Log tab state
@@ -115,14 +100,9 @@ function App() {
 
   const fetchLogs = async () => {
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/logs')
-      if (res.ok) {
-        const data = await res.json()
-        setLogs(data)
-      }
-    } catch (err) {
-      console.error('Failed to fetch logs', err)
-    }
+      const res = await fetch(`${API_BASE}/api/logs`, { headers: getAuthHeaders() })
+      if (res.ok) setLogs(await res.json())
+    } catch (err) { console.error('Failed to fetch logs', err) }
   }
 
   const handleAuthChange = (e: any) => {
@@ -186,16 +166,18 @@ function App() {
     }
   }
 
-  // 1. Check connection and load initial data (with auto-retry)
+  // 1. Check connection and load initial data
   useEffect(() => {
-    const checkConnection = () => {
-      fetch('http://127.0.0.1:8000/api/profile')
-        .then((res) => {
-          if (!res.ok) throw new Error('Network response was not ok');
-          return res.json();
+    if (!token) return; // Wait until logged in
+
+    const loadData = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/profile`, {
+          headers: getAuthHeaders()
         })
-        .then((data) => {
-          setStatus('🟢 Connected to Database')
+        if (res.ok) {
+          const data = await res.json()
+          setStatus('🟢 Connected to Cloud Vault')
           if (Object.keys(data).length > 0) {
             setProfile(data)
             setFormData(data)
@@ -207,14 +189,17 @@ function App() {
           fetchCredentials()
           fetchDocuments()
           fetchLogs()
-        })
-        .catch(() => {
-          setTimeout(checkConnection, 1000)
-        })
+        } else {
+          setStatus('🔴 Session Expired')
+          handleLogout()
+        }
+      } catch (err) {
+        setStatus('🔴 Connection Error')
+      }
     }
     
-    checkConnection()
-  }, [])
+    loadData()
+  }, [token])
 
   const handleLogChange = (e: any) => {
     setLogFormData({ ...logFormData, [e.target.name]: e.target.value })
@@ -223,9 +208,9 @@ function App() {
   const handleSaveLog = async (e: any) => {
     e.preventDefault()
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/logs', {
+      const res = await fetch(`${API_BASE}/api/logs`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(logFormData)
       })
       if (res.ok) {
@@ -233,37 +218,32 @@ function App() {
         setIsAddingLog(false)
         fetchLogs()
       }
-    } catch (error) {
-      alert('Error saving log entry.')
-    }
+    } catch (error) { alert('Error saving log entry.') }
   }
 
   const handleDeleteLog = async (logId: number) => {
     if (window.confirm('Are you sure you want to delete this call record?')) {
       try {
-        const res = await fetch(`http://127.0.0.1:8000/api/logs/${logId}`, { method: 'DELETE' })
+        const res = await fetch(`${API_BASE}/api/logs/${logId}`, { 
+          method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } 
+        })
         if (res.ok) fetchLogs()
-      } catch (error) {
-        alert('Error deleting log.')
-      }
+      } catch (error) { alert('Error deleting log.') }
     }
   }
 
   const handleToggleLog = async (logId: number, currentStatus: boolean) => {
     try {
-      const res = await fetch(`http://127.0.0.1:8000/api/logs/${logId}/toggle?resolved=${!currentStatus}`, { method: 'PUT' })
+      const res = await fetch(`${API_BASE}/api/logs/${logId}/toggle?resolved=${!currentStatus}`, { 
+        method: 'PUT', headers: { 'Authorization': `Bearer ${token}` } 
+      })
       if (res.ok) fetchLogs()
-    } catch (error) {
-      alert('Error updating resolution status.')
-    }
+    } catch (error) { alert('Error updating resolution status.') }
   }
 
   const handleUploadDocument = async (e: any) => {
     e.preventDefault()
-    if (!selectedDocFile) {
-      alert('Please select a file to upload.')
-      return
-    }
+    if (!selectedDocFile) { alert('Please select a file to upload.'); return }
 
     const formDataPayload = new FormData()
     formDataPayload.append('file', selectedDocFile)
@@ -272,8 +252,9 @@ function App() {
 
     setIsUploadingDoc(true)
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/documents/upload', {
+      const res = await fetch(`${API_BASE}/api/documents/upload`, {
         method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }, // No Content-Type for FormData
         body: formDataPayload
       })
       if (res.ok) {
@@ -281,30 +262,23 @@ function App() {
         setDocNotes('')
         fetchDocuments()
         alert('Document stored successfully!')
-      } else {
-        alert('Failed to upload document.')
-      }
-    } catch (err) {
-      alert('Error uploading document.')
-    } finally {
-      setIsUploadingDoc(false)
-    }
+      } else { alert('Failed to upload document.') }
+    } catch (err) { alert('Error uploading document.') } 
+    finally { setIsUploadingDoc(false) }
   }
 
   const handleAutofillPdf = async (e: any) => {
     e.preventDefault()
-    if (!pdfFile) {
-      alert('Please select a blank PDF form.')
-      return
-    }
+    if (!pdfFile) { alert('Please select a blank PDF form.'); return }
 
     const formDataPayload = new FormData()
     formDataPayload.append('file', pdfFile)
 
     setIsAutofillLoading(true)
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/pdf/autofill', {
+      const res = await fetch(`${API_BASE}/api/pdf/autofill`, {
         method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
         body: formDataPayload
       })
 
@@ -318,16 +292,13 @@ function App() {
         a.click()
         a.remove()
         window.URL.revokeObjectURL(url)
-        alert('PDF auto-filled successfully! Your downloaded PDF has opened.')
+        alert('PDF auto-filled successfully!')
       } else {
         const errData = await res.json()
         alert(`Auto-fill error: ${errData.detail || 'Could not parse form'}`)
       }
-    } catch (err) {
-      alert('Error auto-filling PDF form.')
-    } finally {
-      setIsAutofillLoading(false)
-    }
+    } catch (err) { alert('Error auto-filling PDF form.') } 
+    finally { setIsAutofillLoading(false) }
   }
 
   const handleCredChange = (e: any) => {
@@ -337,9 +308,9 @@ function App() {
   const handleSaveCred = async (e: any) => {
     e.preventDefault()
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/credentials', {
+      const res = await fetch(`${API_BASE}/api/credentials`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(credFormData)
       })
       if (res.ok) {
@@ -347,19 +318,17 @@ function App() {
         setIsAddingCred(false)
         fetchCredentials()
       }
-    } catch (error) {
-      alert('Error saving login details.')
-    }
+    } catch (error) { alert('Error saving login details.') }
   }
 
   const handleDeleteCred = async (credId: number) => {
     if (window.confirm('Are you sure you want to delete this login entry?')) {
       try {
-        const res = await fetch(`http://127.0.0.1:8000/api/credentials/${credId}`, { method: 'DELETE' })
+        const res = await fetch(`${API_BASE}/api/credentials/${credId}`, { 
+          method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } 
+        })
         if (res.ok) fetchCredentials()
-      } catch (error) {
-        alert('Error deleting login entry.')
-      }
+      } catch (error) { alert('Error deleting login entry.') }
     }
   }
 
@@ -375,9 +344,9 @@ function App() {
     e.preventDefault()
     try {
       const payload = { ...apptFormData, appointment_date: selectedDate, completed: false }
-      const res = await fetch('http://127.0.0.1:8000/api/appointments', {
+      const res = await fetch(`${API_BASE}/api/appointments`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(payload)
       })
       if (res.ok) {
@@ -385,31 +354,27 @@ function App() {
         setIsAddingAppt(false)
         fetchAppointments()
       }
-    } catch (error) {
-      alert('Error saving appointment.')
-    }
+    } catch (error) { alert('Error saving appointment.') }
   }
 
   const handleDeleteAppt = async (apptId: number) => {
     if (window.confirm('Are you sure you want to delete this appointment?')) {
       try {
-        const res = await fetch(`http://127.0.0.1:8000/api/appointments/${apptId}`, { method: 'DELETE' })
+        const res = await fetch(`${API_BASE}/api/appointments/${apptId}`, { 
+          method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } 
+        })
         if (res.ok) fetchAppointments()
-      } catch (error) {
-        alert('Error deleting appointment.')
-      }
+      } catch (error) { alert('Error deleting appointment.') }
     }
   }
 
   const handleToggleAppt = async (apptId: number, currentStatus: boolean) => {
     try {
-      const res = await fetch(`http://127.0.0.1:8000/api/appointments/${apptId}/toggle?completed=${!currentStatus}`, {
-        method: 'PUT'
+      const res = await fetch(`${API_BASE}/api/appointments/${apptId}/toggle?completed=${!currentStatus}`, {
+        method: 'PUT', headers: { 'Authorization': `Bearer ${token}` } 
       })
       if (res.ok) fetchAppointments()
-    } catch (error) {
-      alert('Error updating appointment status.')
-    }
+    } catch (error) { alert('Error updating appointment status.') }
   }
 
   const handleMedChange = (e: any) => {
@@ -419,9 +384,9 @@ function App() {
   const handleSaveMed = async (e: any) => {
     e.preventDefault()
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/medications', {
+      const res = await fetch(`${API_BASE}/api/medications`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(medFormData)
       })
       if (res.ok) {
@@ -429,46 +394,38 @@ function App() {
         setIsAddingMed(false)
         fetchMedications()
       }
-    } catch (error) {
-      alert('Error saving medication.')
-    }
+    } catch (error) { alert('Error saving medication.') }
   }
 
   const handleDeleteMed = async (medId: number) => {
     if (window.confirm('Are you sure you want to delete this medication?')) {
       try {
-        const res = await fetch(`http://127.0.0.1:8000/api/medications/${medId}`, { method: 'DELETE' })
-        if (res.ok) {
-          fetchMedications()
-        }
-      } catch (error) {
-        alert('Error deleting medication.')
-      }
+        const res = await fetch(`${API_BASE}/api/medications/${medId}`, { 
+          method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } 
+        })
+        if (res.ok) fetchMedications()
+      } catch (error) { alert('Error deleting medication.') }
     }
   }
 
-  // 2. Handle input changes
-  const handleChange = (e) => {
+  const handleChange = (e: any) => {
     setFormData({ ...formData, [e.target.name]: e.target.value })
   }
 
-  // 3. Save to database
-  const handleSave = async (e) => {
+  const handleSave = async (e: any) => {
     e.preventDefault()
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/profile', {
+      const res = await fetch(`${API_BASE}/api/profile`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(formData)
       })
-      if (response.ok) {
-        setProfile(formData)
+      if (res.ok) {
+        setProfile(formData as any)
         setIsEditing(false)
         alert('Profile Saved Successfully!')
       }
-    } catch (error) {
-      alert('Error saving profile.')
-    }
+    } catch (error) { alert('Error saving profile.') }
   }
 
   // --- SENIOR-FRIENDLY DESIGN SYSTEM STYLES ---
@@ -1259,7 +1216,7 @@ function App() {
                       </div>
 
                       <a
-                        href={`http://127.0.0.1:8000/api/documents/${doc.id}/download`}
+                        href={`${API_BASE}/api/documents/${doc.id}/download`}
                         target="_blank"
                         rel="noreferrer"
                         style={{
