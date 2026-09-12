@@ -109,18 +109,7 @@ db.init_db()
 
 app = FastAPI(title="Mom's Healthcare Assistant Backend")
 
-# Enable CORS for Electron / React Vite (running on localhost)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Allows requests from Vite/Electron dev server
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-app = FastAPI()
-
-# Allow React frontend to communicate with Pi
+# Allow React frontend to communicate with Pi via CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], 
@@ -211,21 +200,18 @@ def root():
 
 
 # --- AUTHENTICATION & RECOVERY ENDPOINTS ---
-@app.post("/api/auth/register")
-def register(req: LoginRequest, email: str):
-    if db.get_user_by_username(req.username):
-        raise HTTPException(status_code=400, detail="Username taken")
-    hashed = pwd_context.hash(req.password)
-    db.create_user(req.username, email, hashed)
-    return {"message": "Master account created"}
-
 @app.post("/api/auth/login")
 def login(req: LoginRequest):
-    user = db.get_user_by_username(req.username)
-    if not user or not pwd_context.verify(req.password, user["password_hash"]):
+    master_user = os.getenv("MASTER_USER")
+    master_pass = os.getenv("MASTER_PASS")
+    
+    if not master_user or not master_pass:
+        raise HTTPException(status_code=500, detail="Server missing Master Credentials")
+        
+    if req.username != master_user or req.password != master_pass:
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
-    token = jwt.encode({"sub": user["username"]}, SECRET_KEY, algorithm=ALGORITHM)
+    token = jwt.encode({"sub": master_user}, SECRET_KEY, algorithm=ALGORITHM)
     return {"access_token": token, "token_type": "bearer"}
 
 @app.post("/api/auth/forgot-password")
@@ -268,85 +254,74 @@ def reset_password(req: ResetPasswordRequest):
 
 # 1. PROFILE ENDPOINTS
 @app.get("/api/profile")
-def get_profile():
+def get_profile(user: str = Depends(get_current_user)):
     return db.get_profile_db()
 
 @app.post("/api/profile")
-def save_profile(profile: MasterProfile):
+def save_profile(profile: MasterProfile, user: str = Depends(get_current_user)):
     db.save_profile_db(profile.model_dump())
     return {"message": "Profile saved successfully!"}
 
-
 # 2. MEDICATION ENDPOINTS
 @app.get("/api/medications")
-def get_medications():
+def get_medications(user: str = Depends(get_current_user)):
     return db.get_medications_db()
 
 @app.post("/api/medications")
-def add_medication(med: Medication):
+def add_medication(med: Medication, user: str = Depends(get_current_user)):
     med_id = db.add_medication_db(med.model_dump())
     return {"message": "Medication added", "id": med_id}
 
 @app.delete("/api/medications/{med_id}")
-def delete_medication(med_id: int):
+def delete_medication(med_id: int, user: str = Depends(get_current_user)):
     db.delete_medication_db(med_id)
     return {"message": f"Medication {med_id} deleted"}
 
-
 # 3. BATTLE LOG ENDPOINTS
 @app.get("/api/logs")
-def get_logs():
+def get_logs(user: str = Depends(get_current_user)):
     return db.get_logs_db()
 
 @app.post("/api/logs")
-def add_log(log_item: LogItem):
-    log_id = db.add_log_db(log_item.model_dump())
-    return {"message": "Log item created", "id": log_id}
-
-@app.put("/api/logs/{log_id}/toggle")
-def toggle_log_status(log_id: int, resolved: bool):
-    db.toggle_log_status_db(log_id, resolved)
-    return {"message": "Status updated"}
-
-@app.get("/api/logs")
-def get_logs():
-    return db.get_logs_db()
-
-@app.post("/api/logs")
-def add_log(log: LogItem):
+def add_log(log: LogItem, user: str = Depends(get_current_user)):
     log_id = db.add_log_db(log.model_dump())
     return {"message": "Log added", "id": log_id}
 
+@app.put("/api/logs/{log_id}/toggle")
+def toggle_log_status(log_id: int, resolved: bool, user: str = Depends(get_current_user)):
+    db.toggle_log_status_db(log_id, resolved)
+    return {"message": "Status updated"}
+
 @app.delete("/api/logs/{log_id}")
-def delete_log(log_id: int):
+def delete_log(log_id: int, user: str = Depends(get_current_user)):
     db.delete_log_db(log_id)
     return {"message": f"Log {log_id} deleted"}
 
 
 # 3.5 APPOINTMENT ENDPOINTS
 @app.get("/api/appointments")
-def get_appointments():
+def get_appointments(user: str = Depends(get_current_user)):
     return db.get_appointments_db()
 
 @app.post("/api/appointments")
-def add_appointment(appt: Appointment):
+def add_appointment(appt: Appointment, user: str = Depends(get_current_user)):
     appt_id = db.add_appointment_db(appt.model_dump())
     return {"message": "Appointment added", "id": appt_id}
 
 @app.delete("/api/appointments/{appt_id}")
-def delete_appointment(appt_id: int):
+def delete_appointment(appt_id: int, user: str = Depends(get_current_user)):
     db.delete_appointment_db(appt_id)
     return {"message": f"Appointment {appt_id} deleted"}
 
 @app.put("/api/appointments/{appt_id}/toggle")
-def toggle_appointment_status(appt_id: int, completed: bool):
+def toggle_appointment_status(appt_id: int, completed: bool, user: str = Depends(get_current_user)):
     db.toggle_appointment_status_db(appt_id, completed)
     return {"message": "Appointment status updated"}
 
 
 # 3.6 CREDENTIAL ENDPOINTS
 @app.get("/api/credentials")
-def get_credentials():
+def get_credentials(user: str = Depends(get_current_user)):
     creds = db.get_credentials_db()
     for c in creds:
         try:
@@ -357,7 +332,7 @@ def get_credentials():
     return creds
 
 @app.post("/api/credentials")
-def add_credential(cred: Credential):
+def add_credential(cred: Credential, user: str = Depends(get_current_user)):
     # Encrypt password before saving
     encrypted_pw = cipher_suite.encrypt(cred.password.encode()).decode()
     cred_dump = cred.model_dump()
@@ -367,20 +342,21 @@ def add_credential(cred: Credential):
     return {"message": "Credential added", "id": cred_id}
 
 @app.delete("/api/credentials/{cred_id}")
-def delete_credential(cred_id: int):
+def delete_credential(cred_id: int, user: str = Depends(get_current_user)):
     db.delete_credential_db(cred_id)
     return {"message": f"Credential {cred_id} deleted"}
 
 # 3.7 DOCUMENT VAULT & MINIO ENDPOINTS
 @app.get("/api/documents")
-def get_documents():
+def get_documents(user: str = Depends(get_current_user)):
     return db.get_documents_db()
 
 @app.post("/api/documents/upload")
 async def upload_document(
     file: UploadFile = File(...),
     category: str = Form("General Record"),
-    notes: str = Form("")
+    notes: str = Form(""),
+    user: str = Depends(get_current_user)
 ):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     object_name = f"{timestamp}_{file.filename}"
@@ -415,6 +391,7 @@ async def upload_document(
 
 @app.get("/api/documents/{doc_id}/download")
 def download_document(doc_id: int):
+    # Notice we temporarily omit Depends(get_current_user) here so standard <a> tags work without complex token injection.
     docs = db.get_documents_db()
     matching = [d for d in docs if d["id"] == doc_id]
     if not matching:
@@ -441,7 +418,7 @@ TEMP_DIR = "temp_pdfs"
 os.makedirs(TEMP_DIR, exist_ok=True)
 
 @app.post("/api/pdf/inspect")
-async def inspect_pdf_fields(file: UploadFile = File(...)):
+async def inspect_pdf_fields(file: UploadFile = File(...), user: str = Depends(get_current_user)):
     """Uploads a PDF and returns all detected fillable form field names."""
     file_path = os.path.join(TEMP_DIR, file.filename)
     with open(file_path, "wb") as buffer:
@@ -454,7 +431,7 @@ async def inspect_pdf_fields(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail=f"Failed to parse PDF fields: {str(e)}")
 
 @app.post("/api/pdf/autofill")
-async def autofill_pdf(file: UploadFile = File(...)):
+async def autofill_pdf(file: UploadFile = File(...), user: str = Depends(get_current_user)):
     """
     Takes an uploaded PDF, fetches Mom's profile from DB, 
     attempts to fuzzy-match profile keys to form fields, fills it out, and returns the PDF.
