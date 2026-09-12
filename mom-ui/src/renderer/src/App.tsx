@@ -1,6 +1,14 @@
 import { useState, useEffect } from 'react'
 
 function App() {
+  const API_BASE = 'https://api-mom.thedragonhms.com'
+  
+  // Auth State
+  const [token, setToken] = useState(localStorage.getItem('mom_token') || '')
+  const [authMode, setAuthMode] = useState('login') // 'login', 'register', 'forgot', 'reset'
+  const [authData, setAuthData] = useState({ username: '', password: '', email: '', pin: '', new_password: '' })
+  const [authMessage, setAuthMessage] = useState('')
+
   const [status, setStatus] = useState('🟡 Waiting for Python backend...')
   const [activeTab, setActiveTab] = useState<'profile' | 'meds' | 'appts' | 'creds' | 'vault' | 'logs'>('profile')
   const [profile, setProfile] = useState(null)
@@ -114,6 +122,67 @@ function App() {
       }
     } catch (err) {
       console.error('Failed to fetch logs', err)
+    }
+  }
+
+  const handleAuthChange = (e: any) => {
+    setAuthData({ ...authData, [e.target.name]: e.target.value })
+  }
+
+  const handleLogin = async (e: any) => {
+    e.preventDefault()
+    setAuthMessage('Logging in...')
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: authData.username, password: authData.password })
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setToken(data.access_token)
+        localStorage.setItem('mom_token', data.access_token)
+        setAuthMessage('')
+      } else {
+        setAuthMessage('Invalid username or password.')
+      }
+    } catch (err) {
+      setAuthMessage('Could not connect to server.')
+    }
+  }
+
+  const handleLogout = () => {
+    setToken('')
+    localStorage.removeItem('mom_token')
+    setProfile(null)
+  }
+
+  const handleForgotPassword = async (e: any) => {
+    e.preventDefault()
+    setAuthMessage('Sending PIN...')
+    const res = await fetch(`${API_BASE}/api/auth/forgot-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: authData.email })
+    })
+    if (res.ok) {
+      setAuthMode('reset')
+      setAuthMessage('PIN sent to your email!')
+    }
+  }
+
+  const handleResetPassword = async (e: any) => {
+    e.preventDefault()
+    const res = await fetch(`${API_BASE}/api/auth/reset-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: authData.email, pin: authData.pin, new_password: authData.new_password })
+    })
+    if (res.ok) {
+      setAuthMode('login')
+      setAuthMessage('Password reset successfully! Please log in.')
+    } else {
+      setAuthMessage('Invalid PIN or PIN expired.')
     }
   }
 
@@ -428,12 +497,76 @@ function App() {
 
   return (
     <div style={{ padding: '40px', fontFamily: 'Arial, sans-serif', backgroundColor: '#f4f4f4', height: '100vh', overflowY: 'auto', boxSizing: 'border-box', color: '#111' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h1 style={{ fontSize: '32px', margin: 0 }}>Mom's Health Hub</h1>
-        <span style={{ fontSize: '16px', fontWeight: 'bold' }}>{status}</span>
-      </div>
       
-      {/* High-Contrast Senior Navigation Bar */}
+      {/* AUTHENTICATION SCREEN */}
+      {!token && (
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', width: '100vw', position: 'fixed', top: 0, left: 0, backgroundColor: '#F8FAFC' }}>
+          <div style={{ ...cardStyle, width: '400px', textAlign: 'center' }}>
+            <h2 style={{ fontSize: '28px', marginBottom: '8px', color: '#0F172A' }}>Mom's Health Vault</h2>
+            <p style={{ color: '#64748B', marginBottom: '24px' }}>Secure Cloud Access</p>
+            
+            {authMessage && <div style={{ padding: '10px', backgroundColor: '#DBEAFE', color: '#1E40AF', marginBottom: '16px', borderRadius: '6px' }}>{authMessage}</div>}
+
+            {authMode === 'login' && (
+              <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <input style={inputStyle} name="username" placeholder="Username" onChange={handleAuthChange} required />
+                <input style={inputStyle} name="password" type="password" placeholder="Password" onChange={handleAuthChange} required />
+                <button type="submit" style={{ padding: '12px', fontSize: '18px', backgroundColor: '#2563EB', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Log In</button>
+                <button type="button" onClick={() => setAuthMode('forgot')} style={{ background: 'none', border: 'none', color: '#2563EB', cursor: 'pointer', marginTop: '8px' }}>Forgot Password?</button>
+                <button type="button" onClick={() => setAuthMode('register')} style={{ background: 'none', border: 'none', color: '#64748B', cursor: 'pointer' }}>First time? Register Master Account</button>
+              </form>
+            )}
+
+            {authMode === 'forgot' && (
+              <form onSubmit={handleForgotPassword} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <input style={inputStyle} name="email" type="email" placeholder="Account Email" onChange={handleAuthChange} required />
+                <button type="submit" style={{ padding: '12px', fontSize: '18px', backgroundColor: '#2563EB', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Send Reset PIN</button>
+                <button type="button" onClick={() => setAuthMode('login')} style={{ background: 'none', border: 'none', color: '#64748B', cursor: 'pointer', marginTop: '8px' }}>Back to Login</button>
+              </form>
+            )}
+
+            {authMode === 'reset' && (
+              <form onSubmit={handleResetPassword} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <input style={inputStyle} name="email" type="email" placeholder="Account Email" onChange={handleAuthChange} required />
+                <input style={inputStyle} name="pin" placeholder="6-Digit PIN from Email" onChange={handleAuthChange} required />
+                <input style={inputStyle} name="new_password" type="password" placeholder="New Password" onChange={handleAuthChange} required />
+                <button type="submit" style={{ padding: '12px', fontSize: '18px', backgroundColor: '#059669', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Reset Password</button>
+              </form>
+            )}
+            
+            {authMode === 'register' && (
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                const res = await fetch(`${API_BASE}/api/auth/register?email=${authData.email}`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ username: authData.username, password: authData.password })
+                });
+                if(res.ok) { setAuthMessage('Registered! Please log in.'); setAuthMode('login'); }
+              }} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <input style={inputStyle} name="email" type="email" placeholder="Recovery Email" onChange={handleAuthChange} required />
+                <input style={inputStyle} name="username" placeholder="Choose Username" onChange={handleAuthChange} required />
+                <input style={inputStyle} name="password" type="password" placeholder="Choose Password" onChange={handleAuthChange} required />
+                <button type="submit" style={{ padding: '12px', fontSize: '18px', backgroundColor: '#0F172A', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Create Account</button>
+                <button type="button" onClick={() => setAuthMode('login')} style={{ background: 'none', border: 'none', color: '#64748B', cursor: 'pointer', marginTop: '8px' }}>Cancel</button>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* MAIN APPLICATION (Only visible if logged in) */}
+      {token && (
+        <>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h1 style={{ fontSize: '32px', margin: 0 }}>Mom's Health Hub</h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <span style={{ fontSize: '16px', fontWeight: 'bold' }}>{status}</span>
+              <button onClick={handleLogout} style={{ padding: '8px 16px', backgroundColor: '#DC2626', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Logout</button>
+            </div>
+          </div>
+          
+          {/* High-Contrast Senior Navigation Bar */}
       <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', margin: '20px 0' }}>
         {[
           { id: 'profile', label: '📋 Master Profile' },
@@ -1277,6 +1410,8 @@ function App() {
         )}
 
       </div>
+    </>
+    )}
     </div>
   )
 }
